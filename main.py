@@ -1,108 +1,156 @@
+import os
 import asyncio
-from aiogram import Bot, Dispatcher, F, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardButton, ReplyKeyboardRemove, InputMediaPhoto
 
-# --- Настройки ---
-API_TOKEN = '8680030204:AAEg8lmgQo9hKanAMC8UsFqSSnpoXWL9mUs'
-bot = Bot(token=API_TOKEN)
+# --- НАСТРОЙКИ ---
+TOKEN = os.getenv("API_TOKEN")
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# --- Состояния ---
-class MatchState(StatesGroup):
-    main_menu = State()     # Главное меню
-    searching = State()    # Поиск матча
-    map_veto = State()     # Этап бана карт
-    in_game = State()      # Идет матч (кнопки Победа/Поражение)
+PHOTO_MAIN = "https://i.yapx.ru/dZgZW.jpg"
+PHOTO_CHOICE = "https://i.yapx.ru/dZgaO.jpg"
 
-# --- Список карт ---
-ALL_MAPS = ["БАХМУТ", "АР.АНТОНОВ", "АВДЕЕВКА"]
+# Список карт для Firefight
+ALL_MAPS = ["🏙 City", "🌲 Forest", "🏜 Desert", "🏭 Factory", "❄️ Snow"]
 
-# --- Клавиатуры ---
-def get_main_menu():
-    kb = [
-        [InlineKeyboardButton(text="🔍 НАЙТИ МАТЧ", callback_data="find_match")],
-        [InlineKeyboardButton(text="⬅️ НАЗАД", callback_data="back")]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=kb)
+# БД в памяти
+queues = {"flexxy": [], "editor": []}
+matches = {}      
+elo_ratings = {}  
+user_last_msg = {} 
+veto_sessions = {} # {match_id: {"maps": [], "turn": p1, "p1": p1, "p2": p2}}
 
-def get_veto_keyboard(available_maps):
-    kb = [[InlineKeyboardButton(text=f"🚫 БАН: {m}", callback_data=f"ban_{m}")] for m in available_maps]
-    return InlineKeyboardMarkup(inline_keyboard=kb)
+# --- СИСТЕМА FACEIT ---
+def get_elo(uid):
+    return elo_ratings.get(uid, 1000)
 
-def get_game_results():
-    kb = [
-        [InlineKeyboardButton(text="🏆 Я ПОБЕДИЛ", callback_data="win")],
-        [InlineKeyboardButton(text="🏳️ Я ПРОИГРАЛ (Сдаться)", callback_data="lose")]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=kb)
+def get_lvl(elo):
+    if elo < 800: return "1️⃣"
+    if elo < 1100: return "3️⃣"
+    if elo < 1400: return "5️⃣"
+    if elo < 2000: return "9️⃣"
+    return "🔟"
 
-# --- Хэндлеры ---
+async def ui_update(uid, text, kb, photo=PHOTO_MAIN):
+    if uid in user_last_msg:
+        try: await bot.delete_message(uid, user_last_msg[uid])
+        except: pass
+    msg = await bot.send_photo(uid, photo=photo, caption=text, reply_markup=kb, parse_mode="Markdown")
+    user_last_msg[uid] = msg.message_id
+
+# --- КЛАВИАТУРЫ ---
+def kb_game(mode, uid):
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🔍 НАЙТИ МАТЧ", callback_data=f"find_{mode}"))
+    builder.row(InlineKeyboardButton(text="🏆 Я ПОБЕДИЛ", callback_data="report_win"))
+    builder.row(InlineKeyboardButton(text="🏳️ Я ПРОИГРАЛ", callback_data="report_loss"))
+    builder.row(InlineKeyboardButton(text="🔙 НАЗАД", callback_data="show_mods"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+def kb_veto(match_id, available_maps):
+    builder = InlineKeyboardBuilder()
+    for m in available_maps:
+        builder.row(InlineKeyboardButton(text=f"❌ Бан {m}", callback_data=f"ban_{match_id}_{m}"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+# --- ОБРАБОТЧИКИ ---
 
 @dp.message(Command("start"))
-async def start_cmd(message: types.Message, state: FSMContext):
-    await state.set_state(MatchState.main_menu)
-    await message.answer(
-        "Твой LVL: 3 | ELO: 1025\n\nНажимай поиск, когда будешь готов.",
-        reply_markup=get_main_menu()
-    )
+async def cmd_start(message: types.Message):
+    await ui_update(message.from_user.id, "⚔️ **FACEIT SYSTEM**\n\nВыбери режим:", 
+                    InlineKeyboardBuilder().row(InlineKeyboardButton(text="🕹 ИГРАТЬ", callback_data="show_mods")).as_markup())
 
-@dp.callback_query(F.data == "find_match")
-async def start_searching(callback: types.Callback_query, state: FSMContext):
-    await state.set_state(MatchState.searching)
-    await callback.message.edit_text("🔍 Поиск игроков...")
-    
-    # Имитация нахождения матча через 2 секунды
-    await asyncio.sleep(2)
-    
-    # Переходим к вето
-    await state.set_state(MatchState.map_veto)
-    await state.update_data(remaining_maps=ALL_MAPS.copy())
-    
-    await callback.message.edit_text(
-        "✅ Игроки найдены!\nЭтап МАП-ВЕТО. Выберите карту для БАНА:",
-        reply_markup=get_veto_keyboard(ALL_MAPS)
-    )
+@dp.callback_query(F.data == "show_mods")
+async def mods_menu(call: types.CallbackQuery):
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🔥 FLEXXY ХАБ", callback_data="setmode_flexxy"))
+    kb.row(InlineKeyboardButton(text="🛠 EDITOR ХАБ", callback_data="setmode_editor"))
+    await ui_update(call.from_user.id, "🕹 **ВЫБЕРИ ХАБ:**", kb.as_markup())
 
+@dp.callback_query(F.data.startswith("setmode_"))
+async def select_hub(call: types.CallbackQuery):
+    mode = call.data.split("_")[1]
+    await ui_update(call.from_user.id, f"✅ **ХАБ: {mode.upper()}**\n\nИщи матч!", kb_game(mode, call.from_user.id), PHOTO_CHOICE)
+
+@dp.callback_query(F.data.startswith("find_"))
+async def find_match(call: types.CallbackQuery):
+    uid, mode = call.from_user.id, call.data.split("_")[1]
+    if uid in matches or any(uid in q for q in queues.values()):
+        return await call.answer("Уже в системе!")
+    
+    queues[mode].append(uid)
+    await call.answer("🔍 Поиск...")
+
+    if len(queues[mode]) >= 2:
+        p1, p2 = queues[mode].pop(0), queues[mode].pop(0)
+        match_id = f"{p1}_{p2}"
+        matches[p1] = p2; matches[p2] = p1
+        
+        veto_sessions[match_id] = {"maps": ALL_MAPS.copy(), "turn": p1, "p1": p1, "p2": p2}
+        
+        await bot.send_message(p1, "🎮 **Матч найден!**\nТвоя очередь банить карту.", reply_markup=kb_veto(match_id, ALL_MAPS))
+        await bot.send_message(p2, "🎮 **Матч найден!**\nОжидай, пока противник банит карты.")
+
+# ЛОГИКА БАНА
 @dp.callback_query(F.data.startswith("ban_"))
-async def handle_veto(callback: types.Callback_query, state: FSMContext):
-    data = await state.get_data()
-    maps = data.get("remaining_maps")
-    banned_map = callback.data.replace("ban_", "")
-    
-    if banned_map in maps:
-        maps.remove(banned_map)
-    
-    await state.update_data(remaining_maps=maps)
+async def handle_ban(call: types.CallbackQuery):
+    _, match_id, map_name = call.data.split("_")
+    uid = call.from_user.id
+    session = veto_sessions.get(match_id)
 
-    # Если осталась только 1 карта — начинаем матч
-    if len(maps) == 1:
-        final_map = maps[0]
-        await state.set_state(MatchState.in_game)
-        await callback.message.edit_text(
-            f"🎮 МАТЧ НАЧАТ!\n📍 Локация: **{final_map}**\n\nУдачи в бою! После завершения нажми результат:",
-            parse_mode="Markdown",
-            reply_markup=get_game_results()
-        )
+    if not session or uid != session["turn"]:
+        return await call.answer("Сейчас не твой ход!", show_alert=True)
+
+    session["maps"].remove(map_name)
+    next_player = session["p2"] if uid == session["p1"] else session["p1"]
+    session["turn"] = next_player
+
+    if len(session["maps"]) > 1:
+        # Продолжаем бан
+        await bot.send_message(next_player, f"🚫 Карта `{map_name}` забанена.\nТвой черед банить!", 
+                               reply_markup=kb_veto(match_id, session["maps"]))
+        await call.message.edit_text(f"✅ Ты забанил {map_name}. Ожидай ход противника.")
     else:
-        # Если карт еще много, продолжаем банить
-        await callback.message.edit_text(
-            f"Карта {banned_map} забанена. Выбери следующую:",
-            reply_markup=get_veto_keyboard(maps)
-        )
+        # Осталась одна карта
+        final_map = session["maps"][0]
+        p1, p2 = session["p1"], session["p2"]
+        msg = f"🏁 **ВЕТО ЗАВЕРШЕНО!**\n\n🗺 Карта матча: **{final_map}**\n\nХост ({get_lvl(get_elo(p1))}): Создавай лобби!"
+        await bot.send_message(p1, msg)
+        await bot.send_message(p2, msg.replace("Хост", "Гость"))
+        del veto_sessions[match_id]
 
-@dp.callback_query(F.data.in_({"win", "lose"}))
-async def match_result(callback: types.Callback_query, state: FSMContext):
-    res = "Победа! +25 ELO" if callback.data == "win" else "Поражение. -20 ELO"
-    await callback.message.edit_text(f"Результат записан: {res}")
-    
-    # Возвращаем в главное меню через 3 секунды
-    await asyncio.sleep(3)
-    await start_cmd(callback.message, state)
+# ФИНАЛ МАТЧА (как прежде)
+async def apply_result(win_id, loss_id):
+    points = 25
+    elo_ratings[win_id] = get_elo(win_id) + points
+    elo_ratings[loss_id] = max(0, get_elo(loss_id) - points)
+    matches.pop(win_id, None); matches.pop(loss_id, None)
+    await bot.send_message(win_id, f"🏆 **WIN!** New ELO: `{get_elo(win_id)}`")
+    await bot.send_message(loss_id, f"💀 **LOSS!** New ELO: `{get_elo(loss_id)}`")
 
-# --- Запуск ---
+@dp.callback_query(F.data == "report_win")
+async def report_win(call: types.CallbackQuery):
+    if call.from_user.id not in matches: return
+    opp = matches[call.from_user.id]
+    kb = InlineKeyboardBuilder().row(InlineKeyboardButton(text="✅ ПОДТВЕРДИТЬ", callback_data=f"conf_{call.from_user.id}")).as_markup()
+    await bot.send_message(opp, "⚠️ Противник нажал WIN. Подтверждаешь?", reply_markup=kb)
+
+@dp.callback_query(F.data.startswith("conf_"))
+async def confirm_res(call: types.CallbackQuery):
+    w_id = int(call.data.split("_")[1])
+    if call.from_user.id in matches:
+        await apply_result(w_id, call.from_user.id)
+        await call.message.delete()
+
+@dp.callback_query(F.data == "report_loss")
+async def report_loss(call: types.CallbackQuery):
+    if call.from_user.id in matches: await apply_result(matches[call.from_user.id], call.from_user.id)
+
 async def main():
     await dp.start_polling(bot)
 
