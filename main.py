@@ -6,7 +6,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # --- Настройки ---
-API_TOKEN = 'ТВОЙ_ТОКЕН_БОТА'
+API_TOKEN = '8680030204:AAEg8lmgQo9hKanAMC8UsFqSSnpoXWL9mUs'
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
