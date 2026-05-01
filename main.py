@@ -14,7 +14,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 API_TOKEN = '8680030204:AAEg8lmgQo9hKanAMC8UsFqSSnpoXWL9mUs'
 ADMIN_CHAT_ID = -5288317466
 # Добавлены новые моды в список доступных локаций/карт для разнообразия
-MAPS = ["Харьков", "Авдеевка", "Часов Яр", "а/р Антонова", "Бахмут", "Egorich", "Ponch", "Rezzy", "KIRITO", "MNRLl"]
+MAPS = ["Харьков", "Авдеевка", "Часов Яр", "а/р Антонова", "Бахмут"]
 MAIN_PHOTO = "https://i.yapx.ru/dffXD.jpg"
 
 logging.basicConfig(level=logging.INFO)
@@ -31,11 +31,11 @@ class MatchState(StatesGroup):
 
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 def get_rank(elo: int) -> str:
-    if elo < 900:   return "🟤 Бронза"
-    if elo < 1100:  return "⚪ Серебро"
-    if elo < 1300:  return "🟡 Золото"
-    if elo < 1500:  return "💎 Платина"
-    if elo < 1800:  return "👑 Мастер"
+    if elo < 900:   return "🟤 сержант"
+    if elo < 1100:  return "⚪ Лейтенант"
+    if elo < 1300:  return "🟡 Майор"
+    if elo < 1500:  return "💎 Полковник"
+    if elo < 1800:  return "👑 Генерал"
     return "🔥 Легенда"
 
 def get_progress_bar(elo: int):
