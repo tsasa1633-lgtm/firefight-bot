@@ -13,7 +13,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 # --- НАСТРОЙКИ ---
 API_TOKEN = '8680030204:AAEg8lmgQo9hKanAMC8UsFqSSnpoXWL9mUs'
 ADMIN_CHAT_ID = -5288317466
-MAPS = ["Харьков", "Авдеевка", "Часов Яр", "а/р Антонова", "Бахмут"]
+# Добавлены новые моды в список доступных локаций/карт для разнообразия
+MAPS = ["Харьков", "Авдеевка", "Часов Яр", "а/р Антонова", "Бахмут", "Egorich", "Ponch", "Rezzy", "KIRITO", "MNRLl"]
 MAIN_PHOTO = "https://i.yapx.ru/dffXD.jpg"
 
 logging.basicConfig(level=logging.INFO)
@@ -47,9 +48,17 @@ def generate_token():
 # --- КЛАВИАТУРЫ ---
 def mod_selection_kb():
     builder = InlineKeyboardBuilder()
+    # Старые моды
     builder.button(text="🔥 FLEXXY mods", callback_data="set_mod:FLEXXY mods")
     builder.button(text="🛠 D.I.W mods", callback_data="set_mod:D.I.W mods")
-    builder.adjust(1)
+    # НОВЫЕ МОДЫ
+    builder.button(text="👤 Egorich", callback_data="set_mod:Egorich")
+    builder.button(text="🍩 Ponch", callback_data="set_mod:Ponch")
+    builder.button(text="⚡ Rezzy", callback_data="set_mod:Rezzy")
+    builder.button(text="⚔️ KIRITO", callback_data="set_mod:KIRITO")
+    builder.button(text="🧊 MNRLl", callback_data="set_mod:MNRLl")
+    
+    builder.adjust(1) # Все кнопки в один столбец для красоты
     return builder.as_markup()
 
 def lobby_menu(mod_name: str):
