@@ -13,7 +13,6 @@ from aiogram.fsm.storage.memory import MemoryStorage
 # --- НАСТРОЙКИ ---
 API_TOKEN = '8680030204:AAEg8lmgQo9hKanAMC8UsFqSSnpoXWL9mUs'
 ADMIN_CHAT_ID = -5288317466
-# Добавлены новые моды в список доступных локаций/карт для разнообразия
 MAPS = ["Харьков", "Авдеевка", "Часов Яр", "а/р Антонова", "Бахмут"]
 MAIN_PHOTO = "https://i.yapx.ru/dffXD.jpg"
 
@@ -21,13 +20,12 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# Временная база данных
 db = {"players": {}, "queue": [], "matches": {}}
 
 class MatchState(StatesGroup):
-    waiting_for_lobby_code = State()     # Код для входа в игру (от хоста)
-    waiting_for_enemy_token = State()    # Секретный код соперника для победы
-    waiting_for_report_screen = State()   # Скриншот при жалобе
+    waiting_for_lobby_code = State()
+    waiting_for_enemy_token = State()
+    waiting_for_report_screen = State()
 
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 def get_rank(elo: int) -> str:
@@ -48,17 +46,14 @@ def generate_token():
 # --- КЛАВИАТУРЫ ---
 def mod_selection_kb():
     builder = InlineKeyboardBuilder()
-    # Старые моды
     builder.button(text="🔥 FLEXXY mods", callback_data="set_mod:FLEXXY mods")
     builder.button(text="🛠 D.I.W mods", callback_data="set_mod:D.I.W mods")
-    # НОВЫЕ МОДЫ
     builder.button(text="👤 Egorich", callback_data="set_mod:Egorich")
     builder.button(text="🍩 Ponch", callback_data="set_mod:Ponch")
     builder.button(text="⚡ Rezzy", callback_data="set_mod:Rezzy")
     builder.button(text="⚔️ KIRITO", callback_data="set_mod:KIRITO")
     builder.button(text="🧊 MNRLl", callback_data="set_mod:MNRLl")
-    
-    builder.adjust(1) # Все кнопки в один столбец для красоты
+    builder.adjust(1)
     return builder.as_markup()
 
 def lobby_menu(mod_name: str):
@@ -74,7 +69,6 @@ def match_actions(match_id: str, is_host: bool):
     builder = InlineKeyboardBuilder()
     if is_host:
         builder.button(text="🔑 Дать код ЛОББИ", callback_data=f"action:l_code:{match_id}")
-    
     builder.button(text="📤 Отправить СВОЙ код", callback_data=f"action:send_tok:{match_id}")
     builder.button(text="🏆 Я Победил", callback_data=f"action:win_check:{match_id}")
     builder.button(text="🚩 Репорт", callback_data=f"action:report:{match_id}")
@@ -93,22 +87,12 @@ async def cmd_start(message: types.Message):
     uid = message.from_user.id
     if uid not in db["players"]:
         db["players"][uid] = {"elo": 1000, "name": message.from_user.full_name, "wins": 0, "losses": 0, "in_match": False}
-    
-    await message.answer_photo(
-        photo=MAIN_PHOTO, 
-        caption="<b>⚔️ FIREFIGHT Matchmaking</b>\n\nВыберите мод для игры:", 
-        reply_markup=mod_selection_kb(), 
-        parse_mode="HTML"
-    )
+    await message.answer_photo(photo=MAIN_PHOTO, caption="<b>⚔️ FIREFIGHT Matchmaking</b>\n\nВыберите мод для игры:", reply_markup=mod_selection_kb(), parse_mode="HTML")
 
 @dp.callback_query(F.data == "back_to_mods")
 async def back_to_mods(callback: types.CallbackQuery):
     try:
-        await callback.message.edit_caption(
-            caption="<b>⚔️ FIREFIGHT Matchmaking</b>\n\nВыберите мод для игры:",
-            reply_markup=mod_selection_kb(),
-            parse_mode="HTML"
-        )
+        await callback.message.edit_caption(caption="<b>⚔️ FIREFIGHT Matchmaking</b>\n\nВыберите мод для игры:", reply_markup=mod_selection_kb(), parse_mode="HTML")
     except:
         await callback.message.answer_photo(photo=MAIN_PHOTO, caption="⚔️ <b>ВЫБЕРИТЕ МОД:</b>", reply_markup=mod_selection_kb(), parse_mode="HTML")
         await callback.message.delete()
@@ -117,13 +101,7 @@ async def back_to_mods(callback: types.CallbackQuery):
 async def open_lobby(callback: types.CallbackQuery):
     mod = callback.data.split(":")[1]
     p = db["players"].get(callback.from_user.id)
-    text = (
-        f"🛰 <b>РЕЖИМ: {mod}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"👤 Игрок: <b>{p['name']}</b>\n"
-        f"🏅 Ранг: {get_rank(p['elo'])}\n"
-        f"📊 ELO: <code>{p['elo']}</code>"
-    )
+    text = f"🛰 <b>РЕЖИМ: {mod}</b>\n━━━━━━━━━━━━━━━━━━\n👤 Игрок: <b>{p['name']}</b>\n🏅 Ранг: {get_rank(p['elo'])}\n📊 ELO: <code>{p['elo']}</code>"
     await callback.message.edit_caption(caption=text, reply_markup=lobby_menu(mod), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("search:"))
@@ -131,148 +109,102 @@ async def search(callback: types.CallbackQuery):
     mod, uid = callback.data.split(":")[1], callback.from_user.id
     if db["players"][uid].get("in_match"):
         return await callback.answer("❌ Вы уже в игре!", show_alert=True)
-
     opponent = next((e for e in db["queue"] if e["mod"] == mod and e["uid"] != uid), None)
     if opponent:
         db["queue"].remove(opponent)
         await create_match(uid, opponent["uid"], mod)
     else:
-        if not any(e["uid"] == uid for e in db["queue"]): 
-            db["queue"].append({"uid": uid, "mod": mod})
-        await callback.message.edit_caption(
-            caption=f"🔍 <b>ПОИСК ИГРЫ [{mod}]</b>\n\nОжидайте противника...", 
-            reply_markup=InlineKeyboardBuilder().button(text="❌ Отмена", callback_data="back_to_mods").as_markup(), 
-            parse_mode="HTML"
-        )
+        if not any(e["uid"] == uid for e in db["queue"]): db["queue"].append({"uid": uid, "mod": mod})
+        await callback.message.edit_caption(caption=f"🔍 <b>ПОИСК ИГРЫ [{mod}]</b>\n\nОжидайте противника...", reply_markup=InlineKeyboardBuilder().button(text="❌ Отмена", callback_data="back_to_mods").as_markup(), parse_mode="HTML")
 
 async def create_match(p1, p2, mod):
     m_id = f"m_{p1}_{p2}_{int(datetime.now().timestamp())}"
     t1, t2 = generate_token(), generate_token()
-    
     db["players"][p1]["in_match"] = db["players"][p2]["in_match"] = True
-    db["matches"][m_id] = {
-        "p1": p1, "p2": p2, 
-        "p1_token": t1, "p2_token": t2, 
-        "mod": mod, "map": random.choice(MAPS)
-    }
-
+    db["matches"][m_id] = {"p1": p1, "p2": p2, "p1_token": t1, "p2_token": t2, "mod": mod, "map": random.choice(MAPS)}
     for p_id in [p1, p2]:
         role = "<b>ХОСТ</b>" if p_id == p1 else "<b>ГОСТЬ</b>"
         my_token = t1 if p_id == p1 else t2
-        text = (
-            f"⚔️ <b>МАТЧ НАЙДЕН!</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"📍 Локация: <code>{db['matches'][m_id]['map']}</code>\n"
-            f"🎭 Роль: {role}\n"
-            f"🎫 Твой код для соперника: <code>{my_token}</code>\n\n"
-            f"<i>Если проиграете — отдайте этот код. Если выиграли — введите код соперника.</i>"
-        )
+        text = f"⚔️ <b>МАТЧ НАЙДЕН!</b>\n━━━━━━━━━━━━━━━━━━\n📍 Локация: <code>{db['matches'][m_id]['map']}</code>\n🎭 Роль: {role}\n🎫 Твой код для соперника: <code>{my_token}</code>\n\n<i>Если проиграете — отдайте этот код. Если выиграли — введите код соперника.</i>"
         await bot.send_message(p_id, text, reply_markup=match_actions(m_id, p_id==p1), parse_mode="HTML")
-
-# --- ГЛАВНЫЙ ОБРАБОТЧИК КНОПОК МАТЧА ---
 
 @dp.callback_query(F.data.startswith("action:"))
 async def handle_match_actions(callback: types.CallbackQuery, state: FSMContext):
-    data_parts = callback.data.split(":")
-    action = data_parts[1]
-    m_id = data_parts[2]
-    
+    _, action, m_id = callback.data.split(":")
     match = db["matches"].get(m_id)
-    if not match:
-        return await callback.answer("❌ Матч уже завершен или не найден.")
-
+    if not match: return await callback.answer("❌ Матч уже завершен или не найден.")
     if action == "l_code":
-        await state.update_data(m_id=m_id)
-        await state.set_state(MatchState.waiting_for_lobby_code)
+        await state.update_data(m_id=m_id); await state.set_state(MatchState.waiting_for_lobby_code)
         await callback.message.answer("⌨️ Введите код лобби (пароль), который увидит соперник:")
-
     elif action == "send_tok":
-        # Отправляем свой токен сопернику
         is_p1 = callback.from_user.id == match["p1"]
-        my_token = match["p1_token"] if is_p1 else match["p2_token"]
         target = match["p2"] if is_p1 else match["p1"]
-        
-        await bot.send_message(target, f"📩 Соперник прислал код подтверждения победы: <code>{my_token}</code>")
-        await callback.answer("✅ Код отправлен сопернику!", show_alert=True)
-
+        await bot.send_message(target, f"📩 Соперник прислал код подтверждения победы: <code>{match['p1_token'] if is_p1 else match['p2_token']}</code>")
+        await callback.answer("✅ Код отправлен!", show_alert=True)
     elif action == "win_check":
-        await state.update_data(m_id=m_id)
-        await state.set_state(MatchState.waiting_for_enemy_token)
-        await callback.message.answer("🏆 Введите код, который вам скинул соперник после вашего выигрыша:")
-
+        await state.update_data(m_id=m_id); await state.set_state(MatchState.waiting_for_enemy_token)
+        await callback.message.answer("🏆 Введите код, который вам скинул соперник:")
     elif action == "report":
-        await state.update_data(m_id=m_id)
-        await state.set_state(MatchState.waiting_for_report_screen)
+        await state.update_data(m_id=m_id); await state.set_state(MatchState.waiting_for_report_screen)
         await callback.message.answer("🚩 Отправьте скриншот победы. Мы проверим жалобу вручную.")
-
-# --- ЛОГИКА ВВОДА ТЕКСТА ---
 
 @dp.message(MatchState.waiting_for_enemy_token)
 async def process_win_token(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    m_id = data.get('m_id')
-    match = db["matches"].get(m_id)
+    data = await state.get_data(); match = db["matches"].get(data.get('m_id'))
     if not match: return await state.clear()
-
-    is_p1 = message.from_user.id == match["p1"]
-    enemy_token = match["p2_token"] if is_p1 else match["p1_token"]
-    
+    enemy_token = match["p2_token"] if message.from_user.id == match["p1"] else match["p1_token"]
     if message.text.strip() == enemy_token:
-        win_id = match["p1"] if is_p1 else match["p2"]
-        los_id = match["p2"] if is_p1 else match["p1"]
-        await finish_match(m_id, win_id, los_id)
-        await state.clear()
-    else:
-        await message.answer("❌ Неверный код! Попробуйте еще раз или напишите жалобу (Репорт).")
+        win_id, los_id = (match["p1"], match["p2"]) if message.from_user.id == match["p1"] else (match["p2"], match["p1"])
+        await finish_match(data.get('m_id'), win_id, los_id); await state.clear()
+    else: await message.answer("❌ Неверный код!")
 
 @dp.message(MatchState.waiting_for_lobby_code)
 async def process_lobby_code(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    match = db["matches"].get(data.get('m_id'))
+    data = await state.get_data(); match = db["matches"].get(data.get('m_id'))
     if match:
         target = match["p2"] if message.from_user.id == match["p1"] else match["p1"]
         await bot.send_message(target, f"🔑 <b>КОД ЛОББИ ОТ ХОСТА:</b>\n<code>{message.text}</code>", parse_mode="HTML")
-        await message.answer("✅ Код доставлен сопернику.")
+        await message.answer("✅ Код доставлен.")
     await state.clear()
 
+# --- КРАСИВАЯ АДМИН ПАНЕЛЬ ТУТ ---
 @dp.message(MatchState.waiting_for_report_screen, F.photo)
 async def process_report(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    m_id = data.get('m_id')
-    match = db["matches"].get(m_id)
+    data = await state.get_data(); m_id = data.get('m_id'); match = db["matches"].get(m_id)
+    if not match: return await state.clear()
+
+    p1_info, p2_info = db["players"].get(match['p1']), db["players"].get(match['p2'])
+    reporter = message.from_user
     
     admin_text = (
-        f"🚨 <b>ЖАЛОБА</b>\nИгрок: {message.from_user.full_name}\nID: `{message.from_user.id}`\n"
-        f"Матч: `{m_id}`\nПротив: `{match['p1'] if message.from_user.id != match['p1'] else match['p2']}`"
+        f"🚨 <b>ЖАЛОБА НА МАТЧ</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>Отправитель:</b> {reporter.full_name} (@{reporter.username or 'NoUser'})\n"
+        f"⚔️ <b>Участники:</b>\n"
+        f"├ <b>P1 (Хост):</b> {p1_info['name']} (ID: <code>{match['p1']}</code>)\n"
+        f"└ <b>P2 (Гость):</b> {p2_info['name']} (ID: <code>{match['p2']}</code>)\n"
+        f"📍 <b>Мод:</b> <code>{match['mod']}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👇 <b>ВЫБЕРИТЕ ПОБЕДИТЕЛЯ:</b>"
     )
     
-    await bot.send_photo(
-        ADMIN_CHAT_ID, 
-        photo=message.photo[-1].file_id, 
-        caption=admin_text,
-        reply_markup=InlineKeyboardBuilder()
-        .button(text="✅ Вин P1", callback_data=f"adm_res:{m_id}:{match['p1']}:{match['p2']}")
-        .button(text="✅ Вин P2", callback_data=f"adm_res:{m_id}:{match['p2']}:{match['p1']}")
-        .adjust(2).as_markup()
-    )
-    await message.answer("🆗 Жалоба принята. Ожидайте решения администрации.")
-    await state.clear()
+    kb = InlineKeyboardBuilder()
+    kb.button(text=f"✅ Победил {p1_info['name']}", callback_data=f"adm_res:{m_id}:{match['p1']}:{match['p2']}")
+    kb.button(text=f"✅ Победил {p2_info['name']}", callback_data=f"adm_res:{m_id}:{match['p2']}:{match['p1']}")
+    kb.adjust(1)
+    
+    await bot.send_photo(ADMIN_CHAT_ID, photo=message.photo[-1].file_id, caption=admin_text, reply_markup=kb.as_markup(), parse_mode="HTML")
+    await message.answer("🆗 Жалоба передана администрации."); await state.clear()
 
 async def finish_match(m_id, win_id, los_id):
     for u, e in [(win_id, 25), (los_id, -25)]:
         if u in db["players"]:
-            db["players"][u]["elo"] += e
-            db["players"][u]["in_match"] = False
+            db["players"][u]["elo"] += e; db["players"][u]["in_match"] = False
             if e > 0: db["players"][u]["wins"] += 1
             else: db["players"][u]["losses"] += 1
-            
             res = "🏆 <b>ПОБЕДА!</b> +25 ELO" if e > 0 else "💀 <b>ПОРАЖЕНИЕ.</b> -25 ELO"
             await bot.send_message(u, res, reply_markup=play_again_kb(), parse_mode="HTML")
-    
-    if m_id in db["matches"]: 
-        del db["matches"][m_id]
-
-# --- ОСТАЛЬНЫЕ ФУНКЦИИ ---
+    if m_id in db["matches"]: del db["matches"][m_id]
 
 @dp.callback_query(F.data == "profile")
 async def show_profile(callback: types.CallbackQuery):
@@ -285,19 +217,15 @@ async def show_profile(callback: types.CallbackQuery):
 async def show_top(callback: types.CallbackQuery):
     sorted_p = sorted(db["players"].values(), key=lambda x: x['elo'], reverse=True)[:10]
     text = "🏆 <b>TOP 10 ИГРОКОВ</b>\n"
-    for i, p in enumerate(sorted_p, 1):
-        text += f"{i}. {p['name']} — <code>{p['elo']}</code>\n"
+    for i, p in enumerate(sorted_p, 1): text += f"{i}. {p['name']} — <code>{p['elo']}</code>\n"
     await callback.message.answer(text, reply_markup=play_again_kb(), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("adm_res:"))
 async def admin_decision(callback: types.CallbackQuery):
     _, m_id, win_id, los_id = callback.data.split(":")
     await finish_match(m_id, int(win_id), int(los_id))
-    await callback.message.edit_caption(caption="✅ Результат изменен админом.")
+    await callback.message.edit_caption(caption="✅ <b>Результат зафиксирован админом.</b>", parse_mode="HTML")
 
-async def main():
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+async def main(): await dp.start_polling(bot)
+if __name__ == "__main__": asyncio.run(main())
     
